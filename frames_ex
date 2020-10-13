@@ -7,7 +7,7 @@ for folder in training_videos_folder:
     videos_path = glob.glob(join(folder, "*.mp4"))
     folder = folder.split("\\")[4]  #選出由//所分割的物件 此例為第5個 youtube
     print(folder)
-    counter = 386
+    counter = 0
     for video_path in videos_path:
         cap = cv2.VideoCapture(video_path)
         vid = video_path.split("\\")[-1]
