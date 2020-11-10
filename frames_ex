@@ -1,44 +1,41 @@
 import cv2
-from os import makedirs
-from os.path import join, exists
-import glob
-training_videos_folder = [r"D:\Data\video\original_sequences\youtube\c23\videos"]
-for folder in training_videos_folder:
-    videos_path = glob.glob(join(folder, "*.mp4"))
-    folder = folder.split("\\")[4]  #選出由//所分割的物件 此例為第5個 youtube
-    print(folder)
-    counter = 0
-    for video_path in videos_path:
-        cap = cv2.VideoCapture(video_path)
-        vid = video_path.split("\\")[-1]
-        vid = vid.split(".")[0]
-        frameRate = cap.get(5)  # frame rate
+import os
 
-        if not exists("D:/Data/video/original_sequences/"+  folder +"/c23/frames/video_" + str(int(counter))):
-            makedirs("D:/Data/video/original_sequences/"+  folder +"/c23/frames/video_" + str(int(counter)))
+#####製作裝全部影片位置的list
+ll = []
+"""
+假設影片 list 叫做 ll
+"""
 
-        while cap.isOpened():
-            frameId = cap.get(1)  # current frame number
-            ret, frame = cap.read()
-            if not ret:
-                break
+#####
 
-            filename = (
-                "D:/Data/video/original_sequences/"
-                +folder
-                + "/c23/frames/video_"
-                + str(int(counter))
-                + "/image_"
-                + str(int(frameId) + 1)
-                + ".jpg"
-            )
-            print(filename)
-            cv2.imwrite(filename, frame)
-            
-            if ( int(frameId)== 99 ):
-                print("Number of videos done:", counter)
-                break            
-        cap.release()
-        counter += 1
+i=0
+video = "D:/Celeb-DF-v2/test/video_"  #要放影片的地方
+
+for video_path in ll:
+    cap = cv2.VideoCapture(video_path)
+
+    if not os.path.exists("D:/Celeb-DF-v2/test/video_"+str(i)):
+        os.makedirs("D:/Celeb-DF-v2/test/video_"+str(i))
+        
+    while cap.isOpened():
+        frameId = cap.get(1)  # current frame number
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        filename = (
+            "D:/Celeb-DF-v2/test/video_"
+            + str(i)
+            + "/image_"
+            + str(int(frameId) + 1)
+            + ".jpg"
+        )
+        print(filename)
+        
+        cv2.imwrite(filename, frame)
+        
+    cap.release()
+    i+=1
         
         
