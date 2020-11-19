@@ -209,4 +209,5 @@ def xception(num_classes=1000, pretrained='imagenet'):
 
     # 最後一層改成自己要的東西
     model.last_linear = nn.Linear(2048,2)
+    del model.fc
     return model
