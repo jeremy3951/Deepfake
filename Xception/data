@@ -20,56 +20,59 @@ def showimg(pic):
     cv2.destroyAllWindows()
 
 
-def createpkl(path , idk):
-    train = []
-    
-    for i in range(0,2):
-        ppath = path + str(idk) + '/image_' + str(i+1) + '.jpg'
-       
-        if len(os.listdir(path+str(idk))) >= 2:
-            
-            pic = cv2.imread(ppath)
-            pic = cv2.resize(pic,(299,299))
-            
-            train.append(pic)     
-        
-    train = np.array(train)  
-    train = np.transpose(train , (0,3,1,2))
-    return train
-
-
 class deepfakedata(Dataset):
-    def __init__(self , root_dir):
-        self.root_dir = root_dir
+    def __init__(self , idnum , real , fake ):
         
-    def __len__(self):   #抓幾部影片
-        return 350
+        self.real = []    # real 的所有圖片
+        for i in range(0,10):
+           path = real+'/id'+str(idnum)+'_000'+str(i) 
+           if os.path.exists(path):
+               for j in range(1,51):
+                   if os.path.exists(path+'/'+str(j)+'.jpg'):
+                       self.real.append(path+'/'+str(j)+'.jpg')
+        
+        self.fake = []   # fake 的所有圖片
+        for i in range(0,62):
+            for j in range(0,10):
+                path = fake+'/id'+str(idnum)+'_id'+str(i)+'_000'+str(j)
+                if os.path.exists(path):
+                    for k in range(1,51):
+                        if os.path.exists(path+'/'+str(k)+'.jpg'):
+                            self.fake.append(path+'/'+str(k)+'.jpg')
+           
+    def __len__(self):   #抓幾張圖片
+        """
+        real : 0 ~ 449
+        fake : 450 ~ 5649
+        """
+        return len(self.fake)+len(self.real)   # idx 從 0 開始算
     
     def __getitem__(self  , idx ):   # 弄好 (img , label)
-        
-        if torch.is_tensor(idx):
-            idx = idx.tolist()
-        
-        pa = self.root_dir + '/video_'
-        if idx ==174:
-            idx = 351
-        
-        imgs = createpkl( pa , idx) # list 裡面裝2個 frames
         labels =[]
-        if(self.root_dir[-1] == 'l'):
-            label = 0
+        if idx < len(self.real):
+            
+            if os.path.exists(self.real[idx]):
+                pic = cv2.imread(self.real[idx])
+                pic = cv2.resize(pic , (299,299))
+                pic = np.transpose(pic , (2,1,0))
+            else:
+                print("load image failed")
+            labels = 0
         else:
-            label = 1
-        for i in range(2):
-            labels.append(label) # label *50
+            idx = idx - len(self.real)
+            if os.path.exists(self.fake[idx]):
+                pic = cv2.imread(self.fake[idx])
+                pic = cv2.resize(pic , (299,299))
+                pic = np.transpose(pic , (2,1,0))
+            else:
+                print("load image failed")
+            labels = 1
         
-        sample = {'image': imgs, 'label': labels}      
-        
+        sample = {'image': pic , 'label': labels}      
+            
         return sample
+        
+a = deepfakedata(0, 'D:/Celeb-DF-v2/train/real' , 'D:/Celeb-DF-v2/train/fake' )
 
 
-face = deepfakedata(root_dir='D:/framereal')
 
-deepfake = deepfakedata(root_dir='D:/framesynthesis')
-
-DATA = DataLoader(face , batch_size = 1 , shuffle = False , num_workers = 0 )
