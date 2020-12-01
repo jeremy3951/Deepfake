@@ -5,46 +5,60 @@ Created on Thu Oct 29 16:10:18 2020
 @author: jeremy
 """
 from sklearn.preprocessing import OneHotEncoder
-from torchvision import  transforms
+import torchvision
+from PIL import Image
 from torch.utils.data import DataLoader ,Dataset , random_split
 import joblib
 import numpy as np 
 import torch
 import os
-import cv2
 
 
-def showimg(pic):
-    cv2.imshow('g',pic)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+augmentation = torchvision.transforms.Compose([torchvision.transforms.Resize(200),
+                                                    torchvision.transforms.RandomCrop(200),                                                                            
+                                                    torchvision.transforms.RandomHorizontalFlip(),
+                                                    torchvision.transforms.ToTensor(),
+                                                    torchvision.transforms.Normalize([0.485, 0.456, -.406],[0.229, 0.224, 0.225])
+                                                    ])
+
+
+def fakelist(idnum , fake , imgnumber):
+    fakes = []
+    
+    for i in range(0,62):
+        for j in range(0,10):
+            path = fake+'/id'+str(idnum)+'_id'+str(i)+'_000'+str(j)
+            if os.path.exists(path):
+                for k in range(1,21):
+                    if imgnumber!=0:
+                        if os.path.exists(path+'/'+str(k)+'.jpg'):
+                            fakes.append(path+'/'+str(k)+'.jpg')
+                            imgnumber -= 1
+                    else:
+                        return fakes
+    
+    return fakes
+
+
 
 
 class deepfakedata(Dataset):
-    def __init__(self , idnum , real , fake ):
+    def __init__(self , idnum , real , fake ,transforms):
         
+        self.transforms = transforms
         self.real = []    # real 的所有圖片
         for i in range(0,10):
            path = real+'/id'+str(idnum)+'_000'+str(i) 
            if os.path.exists(path):
-               for j in range(1,51):
+               for j in range(1,31):
                    if os.path.exists(path+'/'+str(j)+'.jpg'):
                        self.real.append(path+'/'+str(j)+'.jpg')
         
         self.fake = []   # fake 的所有圖片
-        for i in range(0,62):
-            for j in range(0,10):
-                path = fake+'/id'+str(idnum)+'_id'+str(i)+'_000'+str(j)
-                if os.path.exists(path):
-                    for k in range(1,51):
-                        if os.path.exists(path+'/'+str(k)+'.jpg'):
-                            self.fake.append(path+'/'+str(k)+'.jpg')
+        self.fake = fakelist(idnum, fake, len(self.real)+50)
            
     def __len__(self):   #抓幾張圖片
-        """
-        real : 0 ~ 449
-        fake : 450 ~ 5649
-        """
+        
         return len(self.fake)+len(self.real)   # idx 從 0 開始算
     
     def __getitem__(self  , idx ):   # 弄好 (img , label)
@@ -52,27 +66,33 @@ class deepfakedata(Dataset):
         if idx < len(self.real):
             
             if os.path.exists(self.real[idx]):
-                pic = cv2.imread(self.real[idx])
-                pic = cv2.resize(pic , (299,299))
-                pic = np.transpose(pic , (2,1,0))
+                pic = Image.open(self.real[idx]).convert('RGB')
+                if self.transforms is not None:
+                    pic = self.transforms(pic)
+                    
             else:
                 print("load image failed")
             labels = 0
         else:
             idx = idx - len(self.real)
             if os.path.exists(self.fake[idx]):
-                pic = cv2.imread(self.fake[idx])
-                pic = cv2.resize(pic , (299,299))
-                pic = np.transpose(pic , (2,1,0))
+                pic = Image.open(self.fake[idx]).convert('RGB')
+                if self.transforms is not None:
+                    pic = self.transforms(pic)
+                   
             else:
                 print("load image failed")
             labels = 1
         
         sample = {'image': pic , 'label': labels}      
-            
+              
         return sample
-        
-a = deepfakedata(0, 'D:/Celeb-DF-v2/train/real' , 'D:/Celeb-DF-v2/train/fake' )
+
+
+# Usage ===========================================================================
+   
+#a = deepfakedata(0, 'D:/Celeb-DF-v2/train/real' , 'D:/Celeb-DF-v2/train/fake',transforms = augmentation )
+#b = DataLoader( dataset = a , batch_size = 2 , shuffle =True  )
 
 
 
