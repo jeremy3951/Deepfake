@@ -1,0 +1,131 @@
+import cv2
+import dlib
+import numpy as np
+
+
+def get_image_hull_mask(image_shape, image_landmarks, ie_polys=None):
+    
+    if image_landmarks.shape[0] != 68:
+        raise Exception(
+            'get_image_hull_mask works only with 68 landmarks')
+    int_lmrks = np.array(image_landmarks, dtype=np.int)
+
+    hull_mask = np.full(image_shape[0:2] + (1,), 0, dtype=np.float32)
+    
+    cv2.fillConvexPoly(hull_mask, cv2.convexHull(
+        np.concatenate((int_lmrks[0:9],
+                        int_lmrks[17:18]))), (1,))
+
+    cv2.fillConvexPoly(hull_mask, cv2.convexHull(
+        np.concatenate((int_lmrks[8:17],
+                        int_lmrks[26:27]))), (1,))
+
+    cv2.fillConvexPoly(hull_mask, cv2.convexHull(
+        np.concatenate((int_lmrks[17:20],
+                        int_lmrks[8:9]))), (1,))
+
+    cv2.fillConvexPoly(hull_mask, cv2.convexHull(
+        np.concatenate((int_lmrks[24:27],
+                        int_lmrks[8:9]))), (1,))
+
+    cv2.fillConvexPoly(hull_mask, cv2.convexHull(
+        np.concatenate((int_lmrks[19:25],
+                        int_lmrks[8:9],
+                        ))), (1,))
+
+    cv2.fillConvexPoly(hull_mask, cv2.convexHull(
+        np.concatenate((int_lmrks[17:22],
+                        int_lmrks[27:28],
+                        int_lmrks[31:36],
+                        int_lmrks[8:9]
+                        ))), (1,))
+
+    cv2.fillConvexPoly(hull_mask, cv2.convexHull(
+        np.concatenate((int_lmrks[22:27],
+                        int_lmrks[27:28],
+                        int_lmrks[31:36],
+                        int_lmrks[8:9]
+                        ))), (1,))
+
+    # nose
+    cv2.fillConvexPoly(
+        hull_mask, cv2.convexHull(int_lmrks[27:36]), (1,))
+
+    if ie_polys is not None:
+        ie_polys.overlay_mask(hull_mask)
+        
+    
+    return hull_mask
+
+
+def find_landmark( path):
+    
+    file_path = 'C:/Users/jeremy/anaconda3/envs/stack3/Lib/site-packages/dlib/examples/shape_predictor_68_face_landmarks.dat'
+    img = cv2.imread(path)
+    
+    #img = cv2.resize(img , (250,250))     resize or not
+    
+    detector = dlib.get_frontal_face_detector()
+    predictor = dlib.shape_predictor(file_path)
+    gray = cv2.cvtColor(src=img, code=cv2.COLOR_BGR2GRAY)
+    faces = detector(gray)
+    for face in faces:    
+        x1 = face.left() 
+        y1 = face.top()
+        x2 = face.right()
+        y2 = face.bottom()  
+    landmarks = predictor(image=gray, box=face) 
+    xy_list = []
+
+    for n in range(0,68):  
+        x = landmarks.part(n).x   
+        y = landmarks.part(n).y    
+        xy_list.append((x,y))
+    
+    xy_array = np.array(xy_list)
+    return xy_array , xy_list , img
+
+def crop_img(img , mask):
+    
+    res = np.zeros((img.shape), dtype = np.uint8)
+    r_channel, g_channel, b_channel = cv2.split(img)
+    
+    
+    for i in range(0,img.shape[0]):
+        for j in range(0,img.shape[1]):
+            if mask[i][j]==1:
+                mask[i][j]=255
+            r_channel[i][j] = mask[i][j] & r_channel[i][j]
+            g_channel[i][j] = mask[i][j] & g_channel[i][j]
+            b_channel[i][j] = mask[i][j] & b_channel[i][j]
+            
+    
+    res = cv2.merge([r_channel , g_channel , b_channel])
+            
+    return res
+    
+def show_img(img):
+    cv2.imshow(winname="Face", mat= img)
+    cv2.waitKey(delay=0)
+    cv2.destroyAllWindows()
+
+
+if __name__=="__main__":
+    
+    img_path = 'D:/Celeb-DF-v2/train/real/id32_0000/6.jpg'
+    
+    xy_array , xy_list ,img = find_landmark(img_path) #第一個mask 要用 , 第二個是畫landmark要用 , 第三個就是圖
+    """  是否要畫上 landmarks ?
+    for (x,y) in xy_list:
+        cv2.circle(img, (x, y), 2, (0, 0, 255), -1)
+    """
+    mask = get_image_hull_mask( (img.shape[0],img.shape[1]) , xy_array )
+    mask = np.squeeze(mask)
+    mask = mask.astype('int32')
+    
+    res = crop_img(img, mask)
+    
+    show_img(img)
+
+
+
