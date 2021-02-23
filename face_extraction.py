@@ -1,48 +1,39 @@
-
-
+  
 from skimage.io import imsave
 from facenet_pytorch import MTCNN
 import cv2
 from PIL import Image
 import os
-import imageio.core.util
+
+def show_img(img):
+    cv2.imshow(winname="Fa", mat= img)
+    cv2.waitKey(delay=0)
+    cv2.destroyAllWindows()
 
 
-def ignore_warnings(*args, **kwargs):
-    pass
-
-
-imageio.core.util._precision_warn = ignore_warnings
-
-# Create face detector
-# If you want to change the default size of image saved from 160, you can
-# uncomment the second line and set the parameter accordingly.
 mtcnn = MTCNN(
     margin=40,
     select_largest=False,
     post_process=False,
     device="cuda:0"
 )
-# mtcnn = MTCNN(margin=40, select_largest=False, post_process=False,
-# device='cuda:0', image_size=256)
-  
-# Directory containing images respective to each video
-source_frames_folders = "D:/Celeb-DF-v2/train/yt-real"
-    
-# Destination location where faces cropped out from images will be saved
-dest_faces_folder = "D:/Celeb-DF-v2/test"
 
+source_frames_folders = r'D:\FF++\data\test\FaceShifter'
+    
 
 names = []
-    
+problem = []  # some videos which is failed
 
-c = 0
+
 for i in os.listdir(source_frames_folders):  # video name
+    names.append(i)
     
+for i in range(1 , 140): 
+    path = os.path.join(source_frames_folders , names[i])
     
-    for j in range(1,51): #1到100個檔名
-        
-        imgs = source_frames_folders +"/"+i+'/'+ str(j) + '.jpg'    
+    for j in os.listdir(path): #1到100個檔名
+    
+        imgs = os.path.join(path , j)
         
         if os.path.isfile(imgs)==False:
             break
@@ -52,19 +43,20 @@ for i in os.listdir(source_frames_folders):  # video name
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         
         frame = Image.fromarray(frame)
-        face = mtcnn(frame)
+        try:
+            face = mtcnn(frame)
+            
+        except:
+            problem.append(names[i])
+            pass
         
         try:
             imsave(
-            imgs,
-            face.permute(1, 2, 0).int().numpy(),
+            imgs
+            , face.permute(1, 2, 0).int().numpy(),
             )
+
         except AttributeError:
             print("Image skipping")
-    
-    
-        
-        
-        
-        
-        
+
+
