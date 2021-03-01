@@ -13,78 +13,128 @@ import numpy as np
 import torch
 import os
 import cv2
+from torch.utils.data import TensorDataset
+from pathlib import Path
 
-augmentation = torchvision.transforms.Compose([torchvision.transforms.Resize(200),
+augmentation = torchvision.transforms.Compose([
+                                                    torchvision.transforms.Resize(200),
                                                     torchvision.transforms.RandomCrop(200),                                                                            
                                                     torchvision.transforms.RandomHorizontalFlip(),
                                                     torchvision.transforms.ToTensor(),
-                                                    torchvision.transforms.Normalize([0.485, 0.456, -.406],[0.229, 0.224, 0.225])
+                                                    torchvision.transforms.Normalize([0.296, 0.332, 0.497],[0.161, 0.171, 0.243])
                                                     ])
 
+def normalize(p = '/home/q36081240/Celeb-DF-v2/train/'):
+    means = [0,0,0]
+    std = [0,0,0]
+    
+    p = p
+    pp = Path(p)
+    
+    total = [x for x in pp.iterdir()]
+    
+    for idx in range(0,6009):
+        sub = [total[idx].joinpath(str(x)+'.jpg') for x in range(1,9)]
+        for i in sub:
+            g = (Image.open(i).convert('RGB'))
+            np_g = np.array(g)
+            np_g = np_g / 255
+            for w in range(3):
+                means[w] += np_g[:,:,w].mean() 
+                
+                std[w] += np_g[:,:,w].std() 
+                
+            
+    means.reverse()
+    std.reverse()
+    
+    means = np.asarray(means) / 48072
+    std = np.asarray(std) / 48072
 
-def fakelist(idnum , fake , imgnumber):
-    fakes = []
-    
-    for i in range(0,62):
-        for j in range(0,10):
-            path = fake+'/id'+str(idnum)+'_id'+str(i)+'_000'+str(j)
-            if os.path.exists(path):
-                for k in range(1,21):
-                    if imgnumber!=0:
-                        if os.path.exists(path+'/'+str(k)+'.jpg'):
-                            fakes.append(path+'/'+str(k)+'.jpg')
-                            imgnumber -= 1
-                    else:
-                        return fakes
-    
-    return fakes
+
+
 
 class deepfakedata(Dataset):
-    def __init__(self , idnum , real , fake ,transforms):
+    def __init__(self , DIR ,transforms ,batch = 8  , start = 0 , end = 6009):
         
         self.transforms = transforms
-        self.real = []    # real 的所有圖片
-        for i in range(0,10):
-           path = real+'/id'+str(idnum)+'_000'+str(i) 
-           if os.path.exists(path):
-               for j in range(1,31):
-                   if os.path.exists(path+'/'+str(j)+'.jpg'):
-                       self.real.append(path+'/'+str(j)+'.jpg')
         
-        self.fake = []   # fake 的所有圖片
-        self.fake = fakelist(idnum, fake, len(self.real)+50)
+        pp = Path(DIR)
+        self.start = start
+        self.end = end
+        
+        self.total = [x for x in pp.iterdir()]
+        self.batch = batch
            
     def __len__(self):   #抓幾張圖片
         
-        return len(self.fake)+len(self.real)   # idx 從 0 開始算
-    
-    def __getitem__(self  , idx ):   # 弄好 (img , label)
-        labels =[]
-        if idx < len(self.real):
-            
-            if os.path.exists(self.real[idx]):
-                
-                pic = Image.open(self.real[idx]).convert('RGB')
-                if self.transforms is not None:
-                    pic = self.transforms(pic)
-                    
-            else:
-                print("load image failed")
-            labels = 0
-        else:
-            idx = idx - len(self.real)
-            if os.path.exists(self.fake[idx]):
-                pic = Image.open(self.fake[idx]).convert('RGB')
-                if self.transforms is not None:
-                    pic = self.transforms(pic)
-                   
-            else:
-                print("load image failed")
-            labels = 1
+        return self.end - self.start  # idx 從 0 開始算
+        #6009 videos
+        #total 8 frames
         
-        sample = {'image': pic , 'label': labels}      
-              
-        return sample
+    def __getitem__(self  , idx ):   # 弄好 (img , label)
+        
+        idx = idx + self.start
+        
+        if len(self.total[idx].name)>10:
+            label = [1 for x in range(self.batch)]
+        if len(self.total[idx].name)<10:
+            label = [0 for x in range(self.batch)]
+    
+        pic = []    
+        sub = [self.total[idx].joinpath(str(x)+'.jpg') for x in range(1,self.batch+1)]
+        
+        for i in sub:
+            pic.append(Image.open(i).convert('RGB'))
+        for i in range(self.batch):
+            pic[i] = self.transforms(pic[i])
+        
+        sample = {'image':pic ,'label':label}
+        
+        return  sample
+    
+
+
+class celeb_test(Dataset):
+    def __init__(self , DIR ,transforms ,batch = 16 ):
+        
+        self.transforms = transforms
+        
+        pp = Path(DIR)
+        
+        self.total = [x for x in pp.iterdir()]
+        self.batch = batch
+        
+    def __len__(self):
+        return len(self.total)
+    
+    def __getitem__(self  , idx ):
+        
+        
+        if idx > 177:
+            label = [1 for x in range(self.batch)]
+        else:
+            label = [0 for x in range(self.batch)]
+    
+        pic = []    
+        sub = [self.total[idx].joinpath('image_'+str(x)+'.jpg') for x in range(1,self.batch+1)]
+        
+        for i in sub:
+            pic.append(Image.open(i).convert('RGB'))
+        for i in range(self.batch):
+            pic[i] = self.transforms(pic[i])
+        
+        sample = {'image':pic ,'label':label}
+        
+        return  sample
+
+# =============================================================================
+# path = '/home/q36081240/Celeb-DF-v2/test/'
+# a = celeb_test(path, augmentation)
+# 
+# b = DataLoader( dataset = a , batch_size = 1,shuffle =True  )
+# =============================================================================
+
 
 def makelist(path):
     l =[]
@@ -137,6 +187,47 @@ class maskdata(Dataset):
     
 
 
+class ffdata(Dataset):
+    def __init__(self , DIR ,transforms , label , batch = 8 ):
+        
+        
+        self.transforms = transforms
+        
+        pp = Path(DIR)
+        self.label = label
+        
+        self.total = [x for x in pp.iterdir()]
+        self.batch = batch
+           
+    def __len__(self):   #抓幾張圖片
+        
+        return len(self.total)  # idx 從 0 開始算
+        #6009 videos
+        #total 8 frames
+        
+    def __getitem__(self  , idx ):   # 弄好 (img , label)
+        
+        
+        labels = [self.label for x in range(self.batch)]
+        
+    
+        pic = []    
+        sub = [self.total[idx].joinpath('image_'+str(x)+'.jpg') for x in range(1,self.batch+1)]
+        
+        
+        for i in sub:
+            if i.exists():
+                pic.append(Image.open(i).convert('RGB'))
+            else :
+                print('file not exist : ' + i)
+        
+        for i in range(self.batch):
+            pic[i] = self.transforms(pic[i])
+            
+        sample = {'image':pic ,'label':labels}
+        
+        return  sample
+
 # Usage ===========================================================================
 # =============================================================================
 # path = r'D:\Celeb-DF-v2\train\real_mask'
@@ -150,9 +241,51 @@ class maskdata(Dataset):
 # face = maskdata(real , fake ,transforms = augmentation)
 # =============================================================================
 
-#a = deepfakedata(50, 'D:/Celeb-DF-v2/train/real' , 'D:/Celeb-DF-v2/train/fake',transforms = augmentation )
+# =============================================================================
+# f_type = ['Deepfakes' , 'Face2Face' , 'FaceSwap' ]
+# al_type = f_type + ['Deepfakes_mask' , 'Face2Face_mask' , 'FaceSwap_mask' ]
+# 
+# 
+# a = ffdata('/home/q36081240/ff/train/original/frames' , augmentation , batch = 16 ,label = 0)
+# a+= ffdata('/home/q36081240/ff/train/original_mask/frames' , augmentation , batch = 16 ,label = 0)   
+# 
+# for w in al_type:
+# 
+#     p = '/home/q36081240/ff/train/'+ w +'/frames'
+# 
+#     a += ffdata(p , augmentation , batch = 8 ,label = 1)
+#     
+# b = DataLoader(dataset = a , batch_size = 1, shuffle =True   )
+# 
+# c = ffdata('/home/q36081240/ff/val/original/frames' , augmentation , batch = 16 ,label = 0)
+# 
+# for w in f_type:
+# 
+#     p = '/home/q36081240/ff/val/'+ w +'/frames'
+# 
+#     c += ffdata(p , augmentation , batch = 8 ,label = 1)
+#     
+# d = DataLoader(dataset = c , batch_size = 1, shuffle =True   )
+# =============================================================================
 
-#b = DataLoader( dataset = a , batch_size = 2 , shuffle =True  )
 
 
+# =============================================================================
+# p = '/home/q36081240/Celeb-DF-v2/train'
+# 
+# a = deepfakedata( p ,transforms = augmentation,  batch = 16 ,start = 0,end = 5000 )
+# 
+# b = DataLoader( dataset = a , batch_size = 1,shuffle =True  )
+# 
+# 
+# for data in b:
+#     for i in range(0,16):
+#         pass
+# =============================================================================
+
+
+
+
+
+    
 
