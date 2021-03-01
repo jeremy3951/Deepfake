@@ -21,8 +21,6 @@ from ipywidgets import IntProgress
 from pytorchtools import EarlyStopping
 from torchsummary import summary
 
-os.environ["CUDA_VISIBLE_DEVICES"] = "2"
-
 
 augmentation = torchvision.transforms.Compose([torchvision.transforms.Resize(200),
                                                
