@@ -1,5 +1,5 @@
 
-from data import maskdata
+from data import maskdata , ffdata
 
 from Xcept import xception , Xception
 import time
@@ -7,6 +7,8 @@ import torch
 from torchvision import datasets, models, transforms
 import os
 import torch.nn as nn
+
+from sklearn.ensemble import AdaBoostClassifier
 
 import copy
 import torch.optim as optim
@@ -19,40 +21,14 @@ import joblib
 from efficientnet_pytorch import EfficientNet
 from PIL import Image
 
-augmentation = torchvision.transforms.Compose([torchvision.transforms.Resize(224),
-                                                    torchvision.transforms.RandomCrop(224),                                                                            
+augmentation = torchvision.transforms.Compose([torchvision.transforms.Resize(160),
+                                                    torchvision.transforms.RandomCrop(160),                                                                            
                                                     torchvision.transforms.RandomHorizontalFlip(),
                                                     torchvision.transforms.ToTensor(),
                                                     torchvision.transforms.Normalize(mean = [0.485, 0.456, 0.406],std = [0.229, 0.224, 0.225])
                                                     ])
 
 
-
-
-def test(loader, model):
-    model.eval()
-    accuracy = 0.
-    with torch.no_grad():
-        for i,data in enumerate(loader , 0):
-            inputs = data['image']
-            labels = data['label']
-            inputs, labels = inputs.to(device , dtype=torch.float32), labels.to(device)
-            ou = model(inputs)
-            _, pred = torch.max(torch.sigmoid(ou), 1)
-            
-            print()
-            print(pred)
-            print(labels)
-            print()
-            accuracy += torch.sum(pred==labels).item()
-        
-    
-    print("Test Accuracy: {}".format(accuracy / len(face)))
-    
-    f = open('./res.txt' , 'w')
-    f.write("Test Accuracy: {}".format(accuracy / len(face)))
-    f.close()
-    
 class testdata(Dataset):
     def __init__(self ,Dir ,label ,transforms):
         self.dir = Dir
@@ -77,7 +53,40 @@ class testdata(Dataset):
             print(self.dir+'/'+str(idx+1)+'.jpg')
             return 0
 
-def celeb_sum (path1):   # 加總一個目錄下所有的  
+
+def test(loader, model , num):
+    model.eval()
+    
+    val_accuracy = 0.0
+    
+    with torch.no_grad():
+        for  data2 in test_loader :
+            
+            for i in range(len(data2['image'])):    
+                
+                inputs , labels =data2['image'][i] , data2['label'][i]
+                
+                inputs, labels = inputs.to(device , dtype=torch.float32), labels.to(device)
+                outputs = model(inputs)
+                _, pred = torch.max(torch.sigmoid(outputs), 1)
+                
+                val_accuracy += torch.sum(pred==labels).item()
+# =============================================================================
+#                 loss = criterion(outputs, labels)
+#                 val_loss += loss.item()
+# =============================================================================
+    
+        #print("val Loss: {}".format(val_loss / num ))    
+        print("val Accuracy: {}".format(val_accuracy / num ))
+        print()
+    
+    f = open('./res.txt' , 'w')
+    f.write("Test Accuracy: {}".format(val_accuracy / num))
+    f.close()
+    
+
+
+def celeb_sum (path):   # 加總一個目錄下所有的  
     l = []
     for i in os.listdir(path):
         l.append(i)
@@ -98,20 +107,101 @@ def celeb_sum (path1):   # 加總一個目錄下所有的
         
     return face
 
-def ff_sum(path1 , lab):
-    
-    for i in range(0,20):
-        path2 = path1+'/'+str(i)
-        if i==0:
-            face = testdata(path2, lab , transforms = augmentation)
-        else:
-            face += testdata(path2, lab , transforms = augmentation)
+class MyEnsemble(nn.Module):
+    def __init__(self, modelA, modelB, nb_classes=2):
+        super(MyEnsemble, self).__init__()
+        self.modelA = modelA
+        self.modelB = modelB
+        # Remove last linear layer
+        self.modelA.fc = nn.Identity()
+        self.modelB._fc = nn.Identity()
         
+        # Create new classifier
+        self.classifier = nn.Linear(2048+1536, nb_classes)
+        
+    def forward(self, x):
+        x1 = self.modelA(x.clone())  # clone to make sure x is not changed by inplace methods
+        x1 = x1.view(x1.size(0), -1)
+        
+        x2 = self.modelB(x)
+        x2 = x2.view(x2.size(0), -1)
+        
+        x = torch.cat((x1, x2), dim=1)
+        
+        x = self.classifier(torch.relu(x))
+        
+        return x
+
+def ff(fake_path , real_path):
+    #fake_type = ['FaceShifter','NeuralTextures']
+    
+    fake_type = ['Deepfakes','Face2Face','FaceSwap']
+    
+    fake = []
+    real = []
+    for z in range(0,3):
+        a = os.path.join(fake_path , fake_type[z] )
+        for i in os.listdir(a):
+            b = os.path.join(a , i )
+            for j in range(1,41):
+                c = os.path.join(b , str(j)+'.jpg' )
+                fake.append(c)
+    
+    
+    for i in os.listdir(real_path):
+        b = os.path.join(real_path , i )
+        for j in range(1,41):
+            c = os.path.join(b , str(j)+'.jpg' )
+            real.append(c)        
+    
+    face = maskdata(real , fake ,transforms = augmentation) 
+     
     return face
+
+
+def load_ffdata(bat):
+    
+    f_type = ['Deepfakes' , 'Face2Face' , 'FaceSwap' ]
+    
+
+    b = ffdata('D:/FF++/data/test/original' , augmentation , batch = bat ,label = 0)
+    
+    for w in f_type:
+    
+        p = 'D:/FF++/data/test/'+ w 
+        b += ffdata(p , augmentation , batch = bat ,label = 1)
+
+    total_img = len(b)*bat
+
+
+    return b ,total_img 
+
 
 if __name__ =="__main__":
     
-    model = EfficientNet.from_name('efficientnet-b0' , num_classes=2)
+# =============================================================================
+#     model = xception(pretrained=False)
+#     state_dict = torch.load(
+#         r'C:\Users\jeremy\Desktop\2021DF\model\FaceForensics-master\FaceForensics-master\classification\xception-b5690688.pth')
+#     for name, weights in state_dict.items():
+#         if 'pointwise' in name:
+#             state_dict[name] = weights.unsqueeze(-1).unsqueeze(-1)
+#     model.load_state_dict(state_dict)
+#     
+#     for param in model.parameters():
+#         param.requires_grad = False
+#     
+#     out_num = model.fc.in_features
+#     model.fc = nn.Linear(out_num,2)
+# =============================================================================
+    
+    model = EfficientNet.from_pretrained('efficientnet-b5' , num_classes=2)
+    
+        
+# =============================================================================
+#     model3 = MyEnsemble(model, model2)
+# =============================================================================
+    
     
     
 # =============================================================================
@@ -127,16 +217,34 @@ if __name__ =="__main__":
 #     model.last_linear = model.fc
 #     out_num = model.fc.in_features
 #     model.last_linear = nn.Linear(out_num,2)
-#     model.load_state_dict(torch.load('./XceptionNet/mask/m1.pth'))
+#     model.load_state_dict(torch.load('./XceptionNet/mask2/m1.pth'))
+# =============================================================================
+
+# =============================================================================
+#     model = Xception()
+#     model.last_linear = model.fc  
+#     out_num = model.fc.in_features
+#     model.last_linear = nn.Linear(out_num,2)
+#     del model.fc
 # =============================================================================
     
+    #model.load_state_dict(torch.load('XceptionNet/m2.pth'))
+    #model.load_state_dict(torch.load('EfficientNet/m1.pth'))
+
+# =============================================================================
+#     p = r'C:\Users\jeremy\Desktop\2021DF\model\FaceForensics-master\FaceForensics-master\classification\all_c23.p'
+#     q = r'C:\Users\jeremy\Desktop\2021DF\model\XceptionNet\mask\m2.pth'
+#     model = torch.load(p)
+#     model.load_state_dict(torch.load(q))
+# =============================================================================
+      
+    #model.load_state_dict(torch.load('./EfficientNet/mask/3_5.pth'))
     
-    
-    model.load_state_dict(torch.load('./EfficientNet/mask/0_20.pth'))
-    
+                          
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
-       
+    
+    
 # loaddata ===========================================================================
     
 #----------------------------celceb-df------------------------------------------
@@ -145,34 +253,15 @@ if __name__ =="__main__":
 #     face = celeb_sum(path)
 # =============================================================================
     
-#-----------------------------FF++ fake-----------------------------------------
-# =============================================================================
-#     faketype = ['Deepfakes','Face2Face','FaceShifter','FaceSwap','NeuralTextures']
-#     
-#     for t in faketype:
-#         face = ff_sum('D:/FF++/video/manipulated_sequences/'+t+'/c23/frames' , lab = 1)
-#         #face = testdata('D:/Celeb-DF-v2/test/id58_id57_0008', 1 , transforms = augmentation)
-#         test_loader = DataLoader( face , batch_size = 16 , shuffle = True , num_workers = 0 )
-# =============================================================================
-    
-    #-----------------------------FF++ real-----------------------------------------
-# =============================================================================
-#     p = r'D:\FF++\video\original_sequences\youtube\c23\frames'
-#     face = ff_sum(p , lab=0)
-# =============================================================================
-
+#-----------------------------FF++-----------------------------------------
+         
+    face , num = load_ffdata(bat = 8)
+    #summary(model , (3,299,299)) 
 
     
-    test_loader = DataLoader( face , batch_size = 16 , shuffle = True , num_workers = 0 )
-    test(test_loader , model)   
-
-
-
-
-
-
-
-
+    test_loader = DataLoader( face , batch_size = 1 , shuffle = True , num_workers = 0 )
+    
+    test(test_loader , model , num)   
 
 
 
