@@ -1,35 +1,39 @@
-
-from data import maskdata , deepfakedata ,ffdata
-from Xcept import  xception , Xception 
+from data2 import  ff_mask ,ff_data
 import time
 import torch
 from torchvision import datasets, models, transforms
 import os
 import torch.nn as nn
 
-
 import torch.optim as optim
 import torchvision
 from torch.optim import lr_scheduler
 from torch.utils.data import DataLoader ,Dataset , random_split
-
+import random
 import numpy as np
 import joblib
 from efficientnet_pytorch import EfficientNet
 from PIL import Image
 from ipywidgets import IntProgress
-from pytorchtools import EarlyStopping
+from pytorchtools2 import EarlyStopping
 from torchsummary import summary
+from torch.utils.data import  BatchSampler , SequentialSampler , RandomSampler
 
-
-augmentation = torchvision.transforms.Compose([torchvision.transforms.Resize(200),
-                                               
+augmentation = torchvision.transforms.Compose([
+                                                    torchvision.transforms.ColorJitter(brightness=0.5, contrast=0.5, saturation=0.5),
+                                                    torchvision.transforms.RandomRotation((90), expand=True),
+                                                    torchvision.transforms.Resize(200),
                                                     torchvision.transforms.RandomCrop(200),                                                                            
                                                     torchvision.transforms.RandomHorizontalFlip(),
                                                     torchvision.transforms.ToTensor(),
-                                                    torchvision.transforms.Normalize([0.485,0.450,0.406],[0.229,0.224,0.225])
+                                                    torchvision.transforms.Normalize([0.35, 0.383, 0.5],[0.194, 0.204, 0.256])
                                                     ])
 
+augmentation2 = torchvision.transforms.Compose([
+                                                    torchvision.transforms.Resize(200),
+                                                    torchvision.transforms.ToTensor(),
+                                                    torchvision.transforms.Normalize([0.35, 0.383, 0.5],[0.194, 0.204, 0.256])
+                                                    ])
 
 def adjust_learning_rate(optimizer, lr):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
@@ -38,7 +42,7 @@ def adjust_learning_rate(optimizer, lr):
         param_group['lr'] = lr
 
 
-def train_model( train_loader, val_loader , model , criterion , optimizer  , num_epochs , patience , num ,num2, learning_rate=0.001 ):
+def train_model( train_loader, val_loader , model , criterion , optimizer  , num_epochs , patience , learning_rate=0.001 ):
     
     early_stopping = EarlyStopping(patience=patience, verbose=True)
     
@@ -55,29 +59,25 @@ def train_model( train_loader, val_loader , model , criterion , optimizer  , num
         
         model.train()
         
-        for  data in train_loader :
+        for inputs, labels in train_loader  :
+            inputs, labels = inputs.to(device , dtype=torch.float32), labels.to(device)
+            optimizer.zero_grad()          
+            outputs = model(inputs)
             
-            for i in range(len(data['image'])):
-                
-                inputs , labels =data['image'][i] , data['label'][i]
-                
-                inputs, labels = inputs.to(device , dtype=torch.float32), labels.to(device)
-                optimizer.zero_grad()          
-                outputs = model(inputs)
-                
-                loss = criterion(outputs, labels)
-                loss.backward()
-                optimizer.step()
-                
-                _, pred = torch.max(torch.sigmoid(outputs), 1)
-                
-                acc = torch.sum(pred==labels).item()
-                train_accuracy += acc
-                
-                train_loss += loss.item()
+            
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+            
+            _, pred = torch.max(torch.sigmoid(outputs), 1)
+            
+            acc = torch.sum(pred==labels).item()
+            train_accuracy += acc
+            
+            train_loss += loss.item()
         
-        print("Train Loss: {}".format(train_loss / num) )
-        print("Train Accuracy: {}".format(train_accuracy / num) )
+        print("Train Loss: {}".format(train_loss / len(train_loader) ) )
+        print("Train Accuracy: {}".format(train_accuracy / len(c)) )
         print()
         print(learning_rate)
    
@@ -88,26 +88,21 @@ def train_model( train_loader, val_loader , model , criterion , optimizer  , num
             
         model.eval()
         with torch.no_grad():
-            for  data2 in val_loader :
+            for inputs, labels in val_loader :
+                inputs, labels = inputs.to(device , dtype=torch.float32), labels.to(device)
+                outputs = model(inputs)
+                _, pred = torch.max(torch.sigmoid(outputs), 1)
                 
-                for i in range(len(data2['image'])):    
-                    
-                    inputs , labels =data2['image'][i] , data2['label'][i]
-                    
-                    inputs, labels = inputs.to(device , dtype=torch.float32), labels.to(device)
-                    outputs = model(inputs)
-                    _, pred = torch.max(torch.sigmoid(outputs), 1)
-                    
-                    
-                    val_accuracy += torch.sum(pred==labels).item()
-                    loss = criterion(outputs, labels)
-                    val_loss += loss.item()
+                
+                val_accuracy += torch.sum(pred==labels).item()
+                loss = criterion(outputs, labels)
+                val_loss += loss.item()
         
-            print("val Loss: {}".format(val_loss / num2 ))    
-            print("val Accuracy: {}".format(val_accuracy / num2 ))
+            print("val Loss: {}".format(val_loss / len(val_loader) ))    
+            print("val Accuracy: {}".format(val_accuracy / len(val) ))
             print()
             
-        early_stopping( (val_loss / num2 ), model)
+        early_stopping( (val_loss / len(val_loader) ), model)
         if early_stopping.early_stop :
             print("Early stopping!!")
             break
@@ -120,46 +115,10 @@ def train_model( train_loader, val_loader , model , criterion , optimizer  , num
 #            torch.save(model.state_dict() , './EfficientNet/mask/3_10.pth')
 # =============================================================================
            
-    torch.save(model.state_dict() , 'efficient_b7_SGD.pth')  
+    torch.save(model.state_dict() , 'efficient_b5_SGD.pth')  
     return model
 
-def load_ffdata(bat):
-    f_type = ['Deepfakes' , 'Face2Face' , 'FaceSwap' ]
-    al_type = f_type + ['Deepfakes_mask' , 'Face2Face_mask' , 'FaceSwap_mask' ]
-    
-    total_img = 0
-    total_img2 = 0
-    
-    a = ffdata('/home/q36081240/ff/train/original/frames' , augmentation , batch = bat ,label = 0)
-    
-    a += ffdata('/home/q36081240/ff/train/original_mask/frames' , augmentation , batch = bat ,label = 0)   
-    
-    for w in al_type:
-    
-        p = '/home/q36081240/ff/train/'+ w +'/frames'
-    
-        a += ffdata(p , augmentation , batch = bat ,label = 1)
-        
-    total_img += (len(a) * bat)
-    
-    b = ffdata('/home/q36081240/ff/val/original/frames' , augmentation , batch = bat ,label = 0)
-    
-    for w in f_type:
-    
-        p = '/home/q36081240/ff/val/'+ w +'/frames'
-    
-        b += ffdata(p , augmentation , batch = bat ,label = 1)
-        
-    total_img2 += len(b)*bat
-    return a , b ,total_img , total_img2
 
-def makelist(path):
-    l =[]
-    for i in os.listdir(path):
-        pp = os.path.join(path , i , '1.jpg')
-        if os.path.exists(pp):
-            l.append(pp)
-    return l
 
 # =============================================================================
 # def ffdata(fake_path , real_path):
@@ -187,7 +146,30 @@ def makelist(path):
 #      
 #     return face
 # =============================================================================
-
+class MyEnsemble(nn.Module):
+    def __init__(self, modelA, modelB, nb_classes=2):
+        super(MyEnsemble, self).__init__()
+        self.modelA = modelA
+        self.modelB = modelB
+        # Remove last linear layer
+        self.modelA._fc = nn.Identity()
+        self.modelB._fc = nn.Identity()
+        
+        # Create new classifier
+        self.classifier = nn.Linear(2048+2048, nb_classes)
+        
+    def forward(self, x):
+        x1 = self.modelA(x.clone())  # clone to make sure x is not changed by inplace methods
+        x1 = x1.view(x1.size(0), -1)
+        
+        x2 = self.modelB(x)
+        x2 = x2.view(x2.size(0), -1)
+        
+        x = torch.cat((x1, x2), dim=1)
+        
+        x = self.classifier(torch.relu(x))
+        
+        return x
         
 if __name__ =="__main__":
 
@@ -229,50 +211,35 @@ if __name__ =="__main__":
 #     p = r'C:\Users\jeremy\Desktop\2021DF\model\FaceForensics-master\FaceForensics-master\classification\all_c23.p'
 #     model = torch.load(p)
 # =============================================================================
-    model = EfficientNet.from_pretrained('efficientnet-b5' , num_classes=2)
+    modelA = EfficientNet.from_pretrained('efficientnet-b5' , num_classes=2)
+    modelB = EfficientNet.from_pretrained('efficientnet-b5' , num_classes=2)
+    model = MyEnsemble(modelA , modelB)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
 
-
     criterion = nn.CrossEntropyLoss()
-    
     
     learning_rate = 0.001
     optimizer_ft = optim.SGD(model.parameters(), lr= learning_rate ,momentum=0.9)
     
     
       
-# load dataset ===========================================================================
-    
-# =============================================================================
-#     # celeb-df mask data
-#     path = r'D:\Celeb-DF-v2\train\real_mask'
-#     real1 = makelist(path)
-#     path = r'D:\Celeb-DF-v2\train\yt-real_mask'
-#     real2 = makelist(path)
-#     real = real1 + real2
-#     path = r'D:\Celeb-DF-v2\train\fake_mask'
-#     fake = makelist(path)
-#     
-#     face = maskdata(real , fake ,transforms = augmentation)
-#     
-#     train_loader = DataLoader( face , batch_size = 8 , shuffle = True , num_workers = 0 )
-# =============================================================================
+# load dataset =========================================================================
 
-    # FF++ data
-    train_face , val_face  , num , num2 = load_ffdata(bat=8)
+    m = ff_mask(transforms = augmentation2 , batch = 8)
+    f = ff_data(transforms = augmentation , mode = 0 , batch = 16) # mode0 : train , mode1 : test , mode2 : val
+    c = m+f
     
-    train_loader =DataLoader( dataset = train_face , batch_size = 2 , shuffle =True  )
+    l = list(BatchSampler(SequentialSampler(range(len(c))), batch_size=8, drop_last=False))
+    random.shuffle(l)
+    train_loader = DataLoader(c ,batch_sampler = l)
     
-    val_loader =DataLoader( dataset = val_face , batch_size = 2 , shuffle =True  )
-# =============================================================================
-#     train_face = ffdata(fake_path = '/home/q36081240/ff/train', real_path = '/home/q36081240/ff/train/original/frames')
-#     val_face = ffdata(fake_path = '/home/q36081240/ff/val' , real_path = '/home/q36081240/ff/val/original/frames')
-#     
-#     train_loader = DataLoader( train_face , batch_size = 8 , shuffle = True , num_workers = 0 )
-#     val_loader = DataLoader( val_face , batch_size = 8 , shuffle = True , num_workers = 0 )
-# =============================================================================
+    val = ff_data(transforms = augmentation2 , mode = 2 , batch = 8)
+    
+    l2 = list(BatchSampler(SequentialSampler(range(len(val))), batch_size=8, drop_last=False))
+    
+    val_loader = DataLoader(val ,batch_sampler = l2)
     
 # =============================================================================
 #     # celeb-df
@@ -292,16 +259,10 @@ if __name__ =="__main__":
                         model, 
                         criterion, 
                         optimizer_ft , 
-                        patience = 25, 
-                        num_epochs=50 , 
-                        learning_rate = learning_rate ,
-                        num = num ,
-                        num2 = num2
+                        patience = 30, 
+                        num_epochs=300 , 
+                        learning_rate = learning_rate
+                        
                         )    
     
-    #summary(model , (3,256,256))
-    
-    
-    
-    
-    
+    #summary(modelA , (3,256,256))
