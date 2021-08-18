@@ -1,12 +1,14 @@
+from Xcept2 import Xception
+from data2 import ff_data , celeb_test , DFDC_test
+from ca import CA_Block
 
-from data import maskdata
-
-from Xcept import xception , Xception
 import time
 import torch
 from torchvision import datasets, models, transforms
 import os
 import torch.nn as nn
+
+from sklearn.ensemble import StackingClassifier
 
 import copy
 import torch.optim as optim
@@ -18,177 +20,224 @@ import numpy as np
 import joblib
 from efficientnet_pytorch import EfficientNet
 from PIL import Image
+from torchsummary import summary
+from sklearn.metrics import roc_auc_score
+import torch.nn.functional as F
 
-augmentation = torchvision.transforms.Compose([torchvision.transforms.Resize(224),
-                                                    torchvision.transforms.RandomCrop(224),                                                                            
-                                                    torchvision.transforms.RandomHorizontalFlip(),
+augmentation = torchvision.transforms.Compose([torchvision.transforms.Resize(160),
+                                                    #torchvision.transforms.RandomCrop(200),                                                                            
+                                                    #torchvision.transforms.RandomHorizontalFlip(),
                                                     torchvision.transforms.ToTensor(),
-                                                    torchvision.transforms.Normalize(mean = [0.485, 0.456, 0.406],std = [0.229, 0.224, 0.225])
+                                                    torchvision.transforms.Normalize([0.5, 0.5, 0.5],[0.5, 0.5, 0.5])
                                                     ])
 
+#torchvision.transforms.Normalize([0.485, 0.456, 0.406],[0.229, 0.224, 0.225])
 
 
-
-def test(loader, model):
+def test(test_loader, model ):
     model.eval()
-    accuracy = 0.
-    with torch.no_grad():
-        for i,data in enumerate(loader , 0):
-            inputs = data['image']
-            labels = data['label']
-            inputs, labels = inputs.to(device , dtype=torch.float32), labels.to(device)
-            ou = model(inputs)
-            _, pred = torch.max(torch.sigmoid(ou), 1)
-            
-            print()
-            print(pred)
-            print(labels)
-            print()
-            accuracy += torch.sum(pred==labels).item()
-        
+    y_s = []
+    y_l = []
+    val_accuracy = 0.0
     
-    print("Test Accuracy: {}".format(accuracy / len(face)))
+    with torch.no_grad():
+        for  inputs , labels in test_loader :
+            
+            inputs, labels = inputs.to(device , dtype=torch.float32), labels.to(device)
+            outputs = model(inputs)
+            
+            m = nn.Softmax(dim=1)
+            
+            _, pred = torch.max(m(outputs), 1)
+            
+            y_s += (m(outputs)[:,1].cpu().data.numpy().tolist())
+            y_l += (labels.cpu().data.numpy().tolist())
+            
+            val_accuracy += torch.sum(pred==labels).item()
+# =============================================================================
+#                 loss = criterion(outputs, labels)
+#                 val_loss += loss.item()
+# =============================================================================
+    
+        #print("val Loss: {}".format(val_loss / num ))    
+        print("test Accuracy: {}".format(val_accuracy / len(a) ))
+        print()
     
     f = open('./res.txt' , 'w')
-    f.write("Test Accuracy: {}".format(accuracy / len(face)))
+    f.write("Test Accuracy: {}".format(val_accuracy / len(a) ))
     f.close()
-    
-class testdata(Dataset):
-    def __init__(self ,Dir ,label ,transforms):
-        self.dir = Dir
-        self.label = label
-        self.transforms = transforms
-           
-    def __len__(self):   #抓幾張圖片
+    return np.array(y_l) , np.array(y_s)
 
-        return 50   # idx 從 0 開始算
-    
-    def __getitem__(self  , idx ):   # 弄好 (img , label)
-        
-        if os.path.exists(self.dir+'/'+str(idx+1)+'.jpg'):
-            pic = Image.open(self.dir+'/'+str(idx+1)+'.jpg').convert('RGB')
-            if self.transforms is not None:
-                pic = self.transforms(pic)
-        
-            sample = {'image': pic , 'label': self.label}  
-            return sample
-        else:
-            print('file not found')
-            print(self.dir+'/'+str(idx+1)+'.jpg')
-            return 0
 
-def celeb_sum (path1):   # 加總一個目錄下所有的  
-    l = []
-    for i in os.listdir(path):
-        l.append(i)
-    
-    for i in range(0,518):
-        
-        if i==0:
-            if(len(l[i])>10):
-                face = testdata(path+'/'+l[i] , 1 , transforms = augmentation)
-            else:
-                face = testdata(path+'/'+l[i] , 0 , transforms = augmentation)
-        
-        else:
-            if(len(l[i])>10):
-                face += testdata(path+'/'+l[i] , 1 , transforms = augmentation)
-            else:
-                face += testdata(path+'/'+l[i] , 0 , transforms = augmentation)
-        
-    return face
 
-def ff_sum(path1 , lab):
-    
-    for i in range(0,20):
-        path2 = path1+'/'+str(i)
-        if i==0:
-            face = testdata(path2, lab , transforms = augmentation)
-        else:
-            face += testdata(path2, lab , transforms = augmentation)
+class CA(nn.Module):
+    def __init__(self, modelA, nb_classes=2):
+        super(CA, self).__init__()
+        self.modelA = modelA
         
-    return face
+        # Remove last linear layer
+        self.modelA._fc = nn.Identity()
+        
+        self.ca_model = CA_Block(channel=2048, h=5, w=5)
+        
+        # Create new classifier
+        self.classifier = nn.Linear(2048, nb_classes)
+        
+        
+    def forward(self, x ):
+        x = self.modelA.extract_features(x) 
+        
+        y = self.ca_model(x)
+        x = torch.mul(y,x)
+        
+        x = self.modelA._avg_pooling(x)
+        x = x.view(x.size(0), -1)
+        x = self.modelA._dropout(x)
+        
+        x = self.classifier(x)
+        x = self.modelA._swish(x)
+        return x
+
+
 
 if __name__ =="__main__":
-    
-    model = EfficientNet.from_name('efficientnet-b0' , num_classes=2)
-    
-    
-# =============================================================================
-#     model = xception(pretrained=False)
-#     model.fc = model.last_linear
-#     del model.last_linear
-#     state_dict = torch.load(
-#         r'C:\Users\jeremy\Desktop\2021DF\model\FaceForensics-master\FaceForensics-master\classification\xception-b5690688.pth')
-#     for name, weights in state_dict.items():
-#         if 'pointwise' in name:
-#             state_dict[name] = weights.unsqueeze(-1).unsqueeze(-1)
-#     model.load_state_dict(state_dict)
-#     model.last_linear = model.fc
-#     out_num = model.fc.in_features
-#     model.last_linear = nn.Linear(out_num,2)
-#     model.load_state_dict(torch.load('./XceptionNet/mask/m1.pth'))
-# =============================================================================
-    
-    
-    
-    model.load_state_dict(torch.load('./EfficientNet/mask/0_20.pth'))
-    
+     
+     
+    modelA = EfficientNet.from_pretrained('efficientnet-b5' , num_classes=2)
+    model = CA( modelA )
+                   
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model = model.to(device)
-       
-# loaddata ===========================================================================
     
-#----------------------------celceb-df------------------------------------------
-# =============================================================================
-#     path = 'D:/Celeb-DF-v2/test'
-#     face = celeb_sum(path)
-# =============================================================================
+    Batch_size = 8
+         
+    a = ff_data(transforms = augmentation , mode = 1 , batch = 100)  # mode0 : train , mode1 : test , mode2 : val
+    #summary(model , (3,224,224)) 
     
-#-----------------------------FF++ fake-----------------------------------------
-# =============================================================================
-#     faketype = ['Deepfakes','Face2Face','FaceShifter','FaceSwap','NeuralTextures']
-#     
-#     for t in faketype:
-#         face = ff_sum('D:/FF++/video/manipulated_sequences/'+t+'/c23/frames' , lab = 1)
-#         #face = testdata('D:/Celeb-DF-v2/test/id58_id57_0008', 1 , transforms = augmentation)
-#         test_loader = DataLoader( face , batch_size = 16 , shuffle = True , num_workers = 0 )
-# =============================================================================
-    
-    #-----------------------------FF++ real-----------------------------------------
-# =============================================================================
-#     p = r'D:\FF++\video\original_sequences\youtube\c23\frames'
-#     face = ff_sum(p , lab=0)
-# =============================================================================
-
-
-    
-    test_loader = DataLoader( face , batch_size = 16 , shuffle = True , num_workers = 0 )
-    test(test_loader , model)   
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+    test_loader = DataLoader(a , batch_size = Batch_size )
     
     
+   
+    
+    model.load_state_dict(torch.load('conter5.pth'))
+    print(' ')
+    print('now model is conter5')
+    print(' ')
+    a = ff_data(transforms = augmentation , mode = 1 , batch = 100)  # mode0 : train , mode1 : test , mode2 : val
+    #summary(model , (3,224,224)) 
+    
+    test_loader = DataLoader(a , batch_size = Batch_size )
+    y_label , y_score = test(test_loader , model )   
+    print(roc_auc_score(y_label, y_score))
+    
+    a = DFDC_test( r'D:\DFDC\frames' , transforms = augmentation )
+    test_loader = DataLoader(a , batch_size = Batch_size)
+    
+    y_label , y_score = test(test_loader , model )   
+    print(roc_auc_score(y_label, y_score))
+
+    a = celeb_test( transforms = augmentation )
+    test_loader = DataLoader(a , batch_size = Batch_size)
+    
+    y_label , y_score = test(test_loader , model )   
+    print(roc_auc_score(y_label, y_score))
+
+
+
+    model.load_state_dict(torch.load('conter10.pth'))
+    print(' ')
+    print('now model is conter10')
+    print(' ')
+    a = ff_data(transforms = augmentation , mode = 1 , batch = 100)  # mode0 : train , mode1 : test , mode2 : val
+    #summary(model , (3,224,224)) 
+    
+    test_loader = DataLoader(a , batch_size = Batch_size )
+    y_label , y_score = test(test_loader , model )   
+    print(roc_auc_score(y_label, y_score))
+    
+    a = DFDC_test( r'D:\DFDC\frames' , transforms = augmentation )
+    test_loader = DataLoader(a , batch_size = Batch_size)
+    
+    y_label , y_score = test(test_loader , model )   
+    print(roc_auc_score(y_label, y_score))
+
+    a = celeb_test( transforms = augmentation )
+    test_loader = DataLoader(a , batch_size = Batch_size)
+    
+    y_label , y_score = test(test_loader , model )   
+    print(roc_auc_score(y_label, y_score))
+    
+    
+    model.load_state_dict(torch.load('conter15.pth'))
+    print(' ')
+    print('now model is conter15')
+    print(' ')
+    a = ff_data(transforms = augmentation , mode = 1 , batch = 100)  # mode0 : train , mode1 : test , mode2 : val
+    #summary(model , (3,224,224)) 
+    
+    test_loader = DataLoader(a , batch_size = Batch_size )
+    y_label , y_score = test(test_loader , model )   
+    print(roc_auc_score(y_label, y_score))
+    
+    a = DFDC_test( r'D:\DFDC\frames' , transforms = augmentation )
+    test_loader = DataLoader(a , batch_size = Batch_size)
+    
+    y_label , y_score = test(test_loader , model )   
+    print(roc_auc_score(y_label, y_score))
+
+    a = celeb_test( transforms = augmentation )
+    test_loader = DataLoader(a , batch_size = Batch_size)
+    
+    y_label , y_score = test(test_loader , model )   
+    print(roc_auc_score(y_label, y_score))
+    
+    
+    model.load_state_dict(torch.load('conter30.pth'))
+    print(' ')
+    print('now model is conter30')
+    print(' ')
+    a = ff_data(transforms = augmentation , mode = 1 , batch = 100)  # mode0 : train , mode1 : test , mode2 : val
+    #summary(model , (3,224,224)) 
+    
+    test_loader = DataLoader(a , batch_size = Batch_size )
+    y_label , y_score = test(test_loader , model )   
+    print(roc_auc_score(y_label, y_score))
+    
+    a = DFDC_test( r'D:\DFDC\frames' , transforms = augmentation )
+    test_loader = DataLoader(a , batch_size = Batch_size)
+    
+    y_label , y_score = test(test_loader , model )   
+    print(roc_auc_score(y_label, y_score))
+
+    a = celeb_test( transforms = augmentation )
+    test_loader = DataLoader(a , batch_size = Batch_size)
+    
+    y_label , y_score = test(test_loader , model )   
+    print(roc_auc_score(y_label, y_score))
+    
+    
+    model.load_state_dict(torch.load('check_3.pth'))
+    print(' ')
+    print('now model is check_3')
+    print(' ')
+    a = ff_data(transforms = augmentation , mode = 1 , batch = 100)  # mode0 : train , mode1 : test , mode2 : val
+    #summary(model , (3,224,224)) 
+    
+    test_loader = DataLoader(a , batch_size = Batch_size )
+    y_label , y_score = test(test_loader , model )   
+    print(roc_auc_score(y_label, y_score))
+    
+    a = DFDC_test( r'D:\DFDC\frames' , transforms = augmentation )
+    test_loader = DataLoader(a , batch_size = Batch_size)
+    
+    y_label , y_score = test(test_loader , model )   
+    print(roc_auc_score(y_label, y_score))
+
+    a = celeb_test( transforms = augmentation )
+    test_loader = DataLoader(a , batch_size = Batch_size)
+    
+    y_label , y_score = test(test_loader , model )   
+    print(roc_auc_score(y_label, y_score))
+
+
     
