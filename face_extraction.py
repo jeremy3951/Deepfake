@@ -1,9 +1,10 @@
-  
 from skimage.io import imsave
 from facenet_pytorch import MTCNN
 import cv2
 from PIL import Image
 import os
+from pathlib import Path
+
 
 def show_img(img):
     cv2.imshow(winname="Fa", mat= img)
@@ -12,51 +13,72 @@ def show_img(img):
 
 
 mtcnn = MTCNN(
-    margin=40,
+    margin=50,
     select_largest=False,
     post_process=False,
     device="cuda:0"
 )
 
-source_frames_folders = r'D:\FF++\data\test\FaceShifter'
-    
+# =============================================================================
+# source_frames_folders = Path(r'C:\Users\jeremy\Desktop\2021DF\model\666\os\000_003')
+#     
+# 
+# video = [x for x in source_frames_folders.iterdir()]
+# 
+# problem = []  # some videos which is failed
+# 
+# dst = r'C:\Users\jeremy\Desktop\2021DF\model\666\os\000_003\tt\546.jpg'
+# =============================================================================
 
-names = []
-problem = []  # some videos which is failed
-
-
-for i in os.listdir(source_frames_folders):  # video name
-    names.append(i)
     
-for i in range(1 , 140): 
-    path = os.path.join(source_frames_folders , names[i])
-    
-    for j in os.listdir(path): #1到100個檔名
-    
-        imgs = os.path.join(path , j)
+# =============================================================================
+# for i in video: 
+#     
+#     frames = [str(x) for x in i.iterdir()]   
+#     
+#     for imgs in frames: 
+#         
+#         
+#         print(imgs)
+#         frame = Image.open(imgs).convert('RGB')
+#         
+#         try:
+#             face = mtcnn(frame)
+#             
+#         except:
+#             problem.append(imgs)
+#             pass
+#                 
+#         try:
+#             imsave(
+#             dst
+#             , face.permute(1, 2, 0).int().numpy(),
+#             )
+# 
+#         except AttributeError:
+#             problem.append(imgs)
+#             print("Image skipping")
+# =============================================================================
         
-        if os.path.isfile(imgs)==False:
-            break
-            
-        frame = cv2.imread(imgs)
-       
-        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+dst = r'C:\Users\jeremy\Desktop\2021DF\model\666\os\000_003\tt\546.jpg'
+
+imgs = r'C:\Users\jeremy\Desktop\2021DF\model\666\os\000_003\1.jpg'
+frame = Image.open(imgs).convert('RGB')
+
+try:
+    face = mtcnn(frame)
+    
+except:
+    problem.append(imgs)
+    pass
         
-        frame = Image.fromarray(frame)
-        try:
-            face = mtcnn(frame)
-            
-        except:
-            problem.append(names[i])
-            pass
-        
-        try:
-            imsave(
-            imgs
-            , face.permute(1, 2, 0).int().numpy(),
-            )
+try:
+    imsave(
+    dst
+    , face.permute(1, 2, 0).int().numpy(),
+    )
 
-        except AttributeError:
-            print("Image skipping")
-
-
+except AttributeError:
+    problem.append(imgs)
+    print("Image skipping")
