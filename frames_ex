@@ -1,41 +1,49 @@
 import cv2
 import os
-
+from pathlib import Path
 #####製作裝全部影片位置的list
-ll = []
+
 """
 假設影片 list 叫做 ll
 """
 
-#####
+src = Path(r'D:\DFDC\test_videos')
+dst = Path(r'C:\Users\jeremy\Desktop\2021DF\model\666')
 
-i=0
-video = "D:/Celeb-DF-v2/test/video_"  #要放影片的地方
 
-for video_path in ll:
-    cap = cv2.VideoCapture(video_path)
 
-    if not os.path.exists("D:/Celeb-DF-v2/test/video_"+str(i)):
-        os.makedirs("D:/Celeb-DF-v2/test/video_"+str(i))
-        
+ll = [str(x) for x in src.iterdir()]
+ll = [r'D:\FF++\data\manipulated_sequences\Deepfakes\c23\videos\000_003.mp4']        
+for video_path in ll: 
+    
+    cap = cv2.VideoCapture( video_path )
+    
+    temp = dst.joinpath(video_path[-14:-4])
+    if not temp.exists():
+        os.makedirs( temp )
+    
+    
+    
     while cap.isOpened():
         frameId = cap.get(1)  # current frame number
-        ret, frame = cap.read()
-        if not ret:
-            break
-
-        filename = (
-            "D:/Celeb-DF-v2/test/video_"
-            + str(i)
-            + "/image_"
-            + str(int(frameId) + 1)
-            + ".jpg"
-        )
-        print(filename)
         
-        cv2.imwrite(filename, frame)
+        if frameId < 6:
+            ret, frame = cap.read()
+            if not ret:
+                break
+    
+            filename = (
+                str(temp)
+                + "/"
+                + str(int(frameId) + 1)
+                + ".jpg"
+            )
+            print(filename)
+            
+            cv2.imwrite(filename, frame)
+        else:
+            break
+        
         
     cap.release()
-    i+=1
-        
         
